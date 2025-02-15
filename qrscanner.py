@@ -7,8 +7,6 @@ import time
 import base64
 from datetime import datetime
 from Crypto.Cipher import AES
-from Crypto.Protocol.KDF import PBKDF2
-from Crypto.Hash import MD5
 import hashlib
 
 class QRDecryptManager:
@@ -28,28 +26,14 @@ class QRDecryptManager:
             timeout=1
         )
         
-        self.secret_key = secret_key
-
-    def derive_key_and_iv(self, salt, key):
-        """
-        Derive key and iv using CryptoJS's EVP_BytesToKey derivation method
-        """
-        def md5(data):
-            return hashlib.md5(data).digest()
-
-        key_iv = b''
-        prev = b''
-        while len(key_iv) < 48:  # We need 32 bytes for key and 16 bytes for iv
-            prev = md5(prev + key.encode('utf-8') + salt)
-            key_iv += prev
-        
-        key = key_iv[:32]
-        iv = key_iv[32:48]
-        return key, iv
+        # Convert the secret key to bytes
+        self.key = secret_key.encode('utf-8')
+        # Fixed IV (must match the one in React Native)
+        self.iv = b'1234567890123456'
 
     def decrypt_data(self, encrypted_data):
         """
-        Decrypt data that was encrypted with CryptoJS.AES.encrypt
+        Decrypt data that was encrypted with CryptoJS.AES.encrypt using CBC mode
         """
         try:
             # Remove any whitespace and newline characters
@@ -63,19 +47,9 @@ class QRDecryptManager:
                 print(f"Base64 decoding failed: {e}")
                 return None
 
-            # Extract salt (first 8 bytes after "Salted__")
-            salt = encrypted_bytes[8:16]
-            ciphertext = encrypted_bytes[16:]
-            
-            print(f"Salt extracted (hex): {salt.hex()}")
-            print(f"Ciphertext length: {len(ciphertext)} bytes")
-
-            # Derive key and IV using the same method as CryptoJS
-            key, iv = self.derive_key_and_iv(salt, self.secret_key)
-            
             # Create cipher and decrypt
-            cipher = AES.new(key, AES.MODE_CBC, iv)
-            padded_data = cipher.decrypt(ciphertext)
+            cipher = AES.new(self.key, AES.MODE_CBC, self.iv)
+            padded_data = cipher.decrypt(encrypted_bytes)
             
             # Remove PKCS7 padding
             padding_length = padded_data[-1]
@@ -120,7 +94,8 @@ class QRDecryptManager:
         """
         Main loop to read QR codes, decrypt data, and save to Firebase
         """
-        print(f"Starting QR code reading loop... Using secret key: {self.secret_key}")
+        print(f"Starting QR code reading loop...")
+        print("Using fixed IV for decryption")
         print("Press Ctrl+C to stop")
         
         try:
@@ -131,7 +106,7 @@ class QRDecryptManager:
                     if raw_data:
                         print("\n=== New QR Code Scanned ===")
                         print(f"Raw data length: {len(raw_data)}")
-                        print(f"Raw data: {raw_data[:100]}...")
+                        print(f"Raw data preview: {raw_data[:100]}...")
                         
                         decrypted_data = self.decrypt_data(raw_data)
                         
@@ -158,6 +133,6 @@ if __name__ == "__main__":
     # Initialize and run
     manager = QRDecryptManager(
         port='/dev/tty.usbmodemAPP_0000000001',  # Update with your port
-        secret_key='abcdefghijklmnop'  # Must match the key in React Native
+        secret_key='abcdefghijklmnop'  # Must match the key used in React Native
     )
     manager.run()
